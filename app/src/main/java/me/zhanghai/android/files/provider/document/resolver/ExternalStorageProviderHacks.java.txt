@@ -1,0 +1,82 @@
+package me.zhanghai.android.files.provider.document.resolver;
+
+import android.database.Cursor;
+import android.database.MergeCursor;
+import android.net.Uri;
+import android.provider.DocumentsContract;
+
+import me.zhanghai.android.files.compat.DocumentsContractCompat;
+
+public class ExternalStorageProviderHacks {
+
+    private static final String DOCUMENT_ID_PRIMARY = "primary";
+    private static final String DOCUMENT_ID_PRIMARY_ANDROID = "primary:Android";
+    private static final String DOCUMENT_ID_PRIMARY_ANDROID_DATA = "primary:Android/data";
+    private static final String DOCUMENT_ID_PRIMARY_ANDROID_OBB = "primary:Android/obb";
+
+    private static final Uri TREE_URI_PRIMARY_ANDROID = DocumentsContract.buildTreeDocumentUri(
+            DocumentsContractCompat.EXTERNAL_STORAGE_PROVIDER_AUTHORITY, DOCUMENT_ID_PRIMARY
+    );
+
+    public static final Uri DOCUMENT_URI_ANDROID_DATA = DocumentsContract.buildDocumentUriUsingTree(
+            TREE_URI_PRIMARY_ANDROID, DOCUMENT_ID_PRIMARY_ANDROID_DATA
+    );
+
+    public static final Uri DOCUMENT_URI_ANDROID_OBB = DocumentsContract.buildDocumentUriUsingTree(
+            TREE_URI_PRIMARY_ANDROID, DOCUMENT_ID_PRIMARY_ANDROID_OBB
+    );
+
+    public static Cursor transformQueryResult(Uri uri, Cursor cursor) {
+        if (DocumentsContractCompat.EXTERNAL_STORAGE_PROVIDER_AUTHORITY.equals(uri.getAuthority())
+                && DocumentsContractCompat.isChildDocumentsUri(uri)
+                && DOCUMENT_ID_PRIMARY_ANDROID.equals(DocumentsContract.getDocumentId(uri))) {
+            boolean hasDataRow = false;
+            boolean hasObbRow = false;
+            try {
+                while (cursor.moveToNext()) {
+                    switch (cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID))) {
+                        case DOCUMENT_ID_PRIMARY_ANDROID_DATA:
+                            hasDataRow = true;
+                            break;
+                        case DOCUMENT_ID_PRIMARY_ANDROID_OBB:
+                            hasObbRow = true;
+                            break;
+                    }
+                    if (hasDataRow && hasObbRow) {
+                        break;
+                    }
+                }
+            } finally {
+                cursor.moveToPosition(-1);
+            }
+            if (hasDataRow && hasObbRow) {
+                return cursor;
+            }
+            Cursor[] cursors = new Cursor[]{cursor};
+
+            if (!hasDataRow) {
+                Uri androidDataUri = DocumentsContract.buildDocumentUriUsingTree(
+                        uri, DOCUMENT_ID_PRIMARY_ANDROID_DATA
+                );
+                cursors = addCursorToArray(cursors, DocumentResolver.query(androidDataUri, null, null));
+            }
+            if (!hasObbRow) {
+                Uri androidObbUri = DocumentsContract.buildDocumentUriUsingTree(
+                        uri, DOCUMENT_ID_PRIMARY_ANDROID_OBB
+                );
+                cursors = addCursorToArray(cursors, DocumentResolver.query(androidObbUri, null, null));
+            }
+            return new MergeCursor(cursors);
+        } else {
+            return cursor;
+        }
+    }
+
+    private static Cursor[] addCursorToArray(Cursor[] cursors, Cursor cursorToAdd) {
+        Cursor[] newCursors = new Cursor[cursors.length + 1];
+        System.arraycopy(cursors, 0, newCursors, 0, cursors.length);
+        newCursors[cursors.length] = cursorToAdd;
+        return newCursors;
+    }
+}
+

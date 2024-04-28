@@ -1,0 +1,52 @@
+package me.zhanghai.android.files.storage;
+
+import java.util.List;
+import me.zhanghai.android.files.settings.Settings;
+
+public class Storages {
+
+    public static void addOrReplace(Storage storage) {
+        List<Storage> storages = CollectionUtils.mutableCopy(Settings.STORAGES.valueCompat());
+        int index = indexOf(storage.getId(), storages);
+        if (index != -1) {
+            storages.set(index, storage);
+        } else {
+            storages.add(storage);
+        }
+        Settings.STORAGES.putValue(storages);
+    }
+
+    public static void replace(Storage storage) {
+        List<Storage> storages = CollectionUtils.mutableCopy(Settings.STORAGES.valueCompat());
+        int index = indexOf(storage.getId(), storages);
+        if (index != -1) {
+            storages.set(index, storage);
+        }
+        Settings.STORAGES.putValue(storages);
+    }
+
+    public static void move(int fromPosition, int toPosition) {
+        List<Storage> storages = CollectionUtils.mutableCopy(Settings.STORAGES.valueCompat());
+        if (fromPosition >= 0 && fromPosition < storages.size() && toPosition >= 0 && toPosition < storages.size()) {
+            Storage removed = storages.remove(fromPosition);
+            storages.add(toPosition, removed);
+        }
+        Settings.STORAGES.putValue(storages);
+    }
+
+    public static void remove(Storage storage) {
+        List<Storage> storages = CollectionUtils.mutableCopy(Settings.STORAGES.valueCompat());
+        storages.removeIf(s -> s.getId() == storage.getId());
+        Settings.STORAGES.putValue(storages);
+    }
+
+    private static int indexOf(long id, List<Storage> storages) {
+        for (int i = 0; i < storages.size(); i++) {
+            if (storages.get(i).getId() == id) {
+                return i;
+            }
+        }
+        return -1;
+    }
+}
+

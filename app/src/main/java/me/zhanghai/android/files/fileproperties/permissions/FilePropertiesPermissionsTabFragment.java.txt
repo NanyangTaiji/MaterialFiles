@@ -1,0 +1,83 @@
+import android.os.Bundle;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentActivity;
+import androidx.lifecycle.ViewModelProvider;
+
+public class FilePropertiesPermissionsTabFragment extends FilePropertiesTabFragment {
+
+    private FilePropertiesFileViewModel viewModel;
+
+    @Override
+    public void onActivityCreated(Bundle savedInstanceState) {
+        super.onActivityCreated(savedInstanceState);
+        viewModel = new ViewModelProvider(requireParentFragment()).get(FilePropertiesFileViewModel.class);
+        viewModel.getFileLiveData().observe(getViewLifecycleOwner(), this::onFileChanged);
+    }
+
+    @Override
+    public void refresh() {
+        viewModel.reload();
+    }
+
+    private void onFileChanged(Stateful<FileItem> stateful) {
+        bindView(stateful, file -> {
+            PosixFileAttributes attributes = (PosixFileAttributes) file.getAttributes();
+            PosixPrincipal owner = attributes.owner();
+            addItemView(
+                    R.string.file_properties_permissions_owner,
+                    getPrincipalText(owner),
+                    owner != null ? () -> SetOwnerDialogFragment.show(file, FilePropertiesPermissionsTabFragment.this) : null
+            );
+
+            PosixPrincipal group = attributes.group();
+            addItemView(
+                    R.string.file_properties_permissions_group,
+                    getPrincipalText(group),
+                    group != null ? () -> SetGroupDialogFragment.show(file, FilePropertiesPermissionsTabFragment.this) : null
+            );
+
+            Set<PosixFilePermission> mode = attributes.permissions();
+            addItemView(
+                    R.string.file_properties_permissions_mode,
+                    mode != null ? getString(R.string.file_properties_permissions_mode_format,
+                            mode.toString(),
+                            PosixFilePermissions.toString(mode))
+                            : getString(R.string.unknown),
+                    mode != null && !attributes.isSymbolicLink() ?
+                            () -> SetModeDialogFragment.show(file, FilePropertiesPermissionsTabFragment.this)
+                            : null
+            );
+
+            String seLinuxContext = attributes.getSeLinuxContext();
+            if (seLinuxContext != null && !seLinuxContext.isEmpty()) {
+                addItemView(
+                        R.string.file_properties_permissions_selinux_context,
+                        seLinuxContext,
+                        () -> SetSeLinuxContextDialogFragment.show(file, FilePropertiesPermissionsTabFragment.this)
+                );
+            }
+        });
+    }
+
+    private String getPrincipalText(PosixPrincipal principal) {
+        if (principal != null) {
+            return principal.getName() != null ?
+                    getString(R.string.file_properties_permissions_principal_format,
+                            principal.getName(),
+                            principal.getId())
+                    : String.valueOf(principal.getId());
+        } else {
+            return getString(R.string.unknown);
+        }
+    }
+
+    public static boolean isAvailable(FileItem file) {
+        Object attributes = file.getAttributes();
+        return attributes instanceof PosixFileAttributes &&
+                (((PosixFileAttributes) attributes).owner() != null ||
+                        ((PosixFileAttributes) attributes).group() != null ||
+                        ((PosixFileAttributes) attributes).permissions() != null ||
+                        ((PosixFileAttributes) attributes).getSeLinuxContext() != null);
+    }
+}
+

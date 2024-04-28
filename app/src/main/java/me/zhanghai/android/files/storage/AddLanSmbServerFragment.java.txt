@@ -1,0 +1,85 @@
+package me.zhanghai.android.files.storage;
+
+import android.os.Bundle;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.ConcatAdapter;
+import androidx.recyclerview.widget.LinearLayoutManager;
+
+import java.util.Collections;
+import java.util.List;
+
+import me.zhanghai.android.files.R;
+import me.zhanghai.android.files.databinding.AddLanSmbServerFragmentBinding;
+import me.zhanghai.android.files.ui.StaticAdapter;
+import me.zhanghai.android.files.util.Failure;
+import me.zhanghai.android.files.util.Loading;
+import me.zhanghai.android.files.util.Stateful;
+
+
+public class AddLanSmbServerFragment extends Fragment {
+
+    private final EditSmbServerActivity.Contract addSmbServerContract = new EditSmbServerActivity.Contract();
+    private final AddLanSmbServerViewModel viewModel = ViewModelUtils.createViewModel(this, AddLanSmbServerViewModel.class);
+
+    private AddLanSmbServerFragmentBinding binding;
+    private StaticAdapter loadingAdapter;
+    private LanSmbServerListAdapter serverListAdapter;
+
+    @Override
+    public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        binding = AddLanSmbServerFragmentBinding.inflate(inflater, container, false);
+        return binding.getRoot();
+    }
+
+    @Override
+    public void onActivityCreated(Bundle savedInstanceState) {
+        super.onActivityCreated(savedInstanceState);
+
+        AppCompatActivity activity = (AppCompatActivity) requireActivity();
+        activity.setSupportActionBar(binding.toolbar);
+        if (activity.getSupportActionBar() != null) {
+            activity.getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        }
+
+        binding.swipeRefreshLayout.setOnRefreshListener(() -> viewModel.reload());
+        binding.recyclerView.setLayoutManager(new LinearLayoutManager(activity));
+        loadingAdapter = new StaticAdapter(R.layout.lan_smb_server_loading_item);
+        serverListAdapter = new LanSmbServerListAdapter(this::addSmbServer);
+        StaticAdapter addAdapter = new StaticAdapter(R.layout.lan_smb_server_add_item, this::addSmbServer);
+        binding.recyclerView.setAdapter(new ConcatAdapter(
+                new ConcatAdapter.Config.Builder().setStableIdMode(ConcatAdapter.Config.StableIdMode.ISOLATED_STABLE_IDS).build(),
+                loadingAdapter, serverListAdapter, addAdapter
+        ));
+
+        viewModel.getLanSmbServerListLiveData().observe(getViewLifecycleOwner(), this::onLanSmbServerListChanged);
+    }
+
+    private void onLanSmbServerListChanged(Stateful<List<LanSmbServer>> stateful) {
+        if (stateful instanceof Failure) {
+            ((Failure<List<LanSmbServer>>) stateful).getThrowable().printStackTrace();
+        }
+        boolean isLoading = stateful instanceof Loading;
+        binding.swipeRefreshLayout.setEnabled(!isLoading);
+        binding.swipeRefreshLayout.setRefreshing(false);
+        ViewUtils.fadeToVisibilityUnsafe(binding.progress, isLoading,false,false);
+        List<LanSmbServer> servers = stateful.getValue() != null ? stateful.getValue() : Collections.emptyList();
+        loadingAdapter.setItemCount(isLoading && servers.isEmpty() ? 1 : 0);
+        serverListAdapter.replace(servers);
+    }
+
+    private void addSmbServer(LanSmbServer server) {
+        addSmbServerContract.createIntent(getActivity(),new EditSmbServerFragment.Args(server, server.getHost()));
+    }
+
+    private void onAddSmbServerResult(boolean result) {
+        if (result) {
+            requireActivity().finish();
+        }
+    }
+}
+

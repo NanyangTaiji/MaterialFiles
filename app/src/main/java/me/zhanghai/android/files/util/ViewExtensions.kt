@@ -24,7 +24,7 @@ fun View.doOnGlobalLayout(block: () -> Unit): OneShotGlobalLayoutListener =
     OneShotGlobalLayoutListener.add(this, block)
 
 /** @see androidx.core.view.OneShotPreDrawListener */
-class OneShotGlobalLayoutListener private constructor(
+class OneShotGlobalLayoutListener(
     private val view: View,
     private val block: () -> Unit
 ) : ViewTreeObserver.OnPreDrawListener, View.OnAttachStateChangeListener {
