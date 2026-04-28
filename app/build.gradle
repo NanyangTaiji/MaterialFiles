@@ -4,6 +4,7 @@
  */
 
 apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'  // ← ADD THIS LINE
 apply plugin: 'kotlin-parcelize'
 
 apply from: '../signing.gradle'
@@ -25,7 +26,7 @@ apply plugin: 'com.google.firebase.crashlytics'
 
 android {
     namespace 'me.zhanghai.android.files'
-    buildToolsVersion = '37.0.0'
+    buildToolsVersion = '36.0.0'
     compileSdk = 36
     ndkVersion '28.1.13356709'
     defaultConfig {
@@ -60,6 +61,12 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+
+    // Add this block to set Kotlin JVM target
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+
     externalNativeBuild {
         cmake {
             path 'CMakeLists.txt'
