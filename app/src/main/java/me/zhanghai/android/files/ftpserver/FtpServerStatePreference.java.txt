@@ -1,0 +1,87 @@
+/*
+ * Copyright (c) 2019 Hai Zhang <dreaming.in.code.zh@gmail.com>
+ * All Rights Reserved.
+ */
+
+package me.zhanghai.android.files.ftpserver;
+
+import android.content.Context;
+import android.util.AttributeSet;
+
+import androidx.annotation.AttrRes;
+import androidx.annotation.StyleRes;
+import androidx.lifecycle.Observer;
+import androidx.preference.SwitchPreferenceCompat;
+
+import me.zhanghai.android.files.R;
+
+public class FtpServerStatePreference extends SwitchPreferenceCompat {
+    private final Observer<FtpServerService.State> observer = this::onStateChanged;
+
+    public FtpServerStatePreference(Context context) {
+        super(context);
+        init();
+    }
+
+    public FtpServerStatePreference(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        init();
+    }
+
+    public FtpServerStatePreference(Context context, AttributeSet attrs,
+            @AttrRes int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
+        init();
+    }
+
+    public FtpServerStatePreference(Context context, AttributeSet attrs,
+            @AttrRes int defStyleAttr, @StyleRes int defStyleRes) {
+        super(context, attrs, defStyleAttr, defStyleRes);
+        init();
+    }
+
+    private void init() {
+        setPersistent(false);
+    }
+
+    @Override
+    public void onAttached() {
+        super.onAttached();
+        FtpServerService.getStateLiveData().observeForever(observer);
+    }
+
+    @Override
+    public void onDetached() {
+        super.onDetached();
+        FtpServerService.getStateLiveData().removeObserver(observer);
+    }
+
+    private void onStateChanged(FtpServerService.State state) {
+        int summaryRes;
+        switch (state) {
+            case STARTING:
+                summaryRes = R.string.ftp_server_state_summary_starting;
+                break;
+            case RUNNING:
+                summaryRes = R.string.ftp_server_state_summary_running;
+                break;
+            case STOPPING:
+                summaryRes = R.string.ftp_server_state_summary_stopping;
+                break;
+            case STOPPED:
+            default:
+                summaryRes = R.string.ftp_server_state_summary_stopped;
+                break;
+        }
+        setSummary(getContext().getString(summaryRes));
+        setChecked(state == FtpServerService.State.STARTING
+                || state == FtpServerService.State.RUNNING);
+        setEnabled(!(state == FtpServerService.State.STARTING
+                || state == FtpServerService.State.STOPPING));
+    }
+
+    @Override
+    protected void onClick() {
+        FtpServerService.toggle(getContext());
+    }
+}

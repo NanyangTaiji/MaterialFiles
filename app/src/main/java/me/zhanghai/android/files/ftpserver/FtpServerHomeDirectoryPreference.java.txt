@@ -1,0 +1,49 @@
+/*
+ * Copyright (c) 2019 Hai Zhang <dreaming.in.code.zh@gmail.com>
+ * All Rights Reserved.
+ */
+
+package me.zhanghai.android.files.ftpserver;
+
+import android.content.Context;
+import android.util.AttributeSet;
+
+import androidx.annotation.AttrRes;
+import androidx.annotation.StyleRes;
+
+import java8.nio.file.Path;
+
+import me.zhanghai.android.files.settings.PathPreference;
+import me.zhanghai.android.files.settings.Settings;
+import me.zhanghai.android.files.util.LiveDataUtilsKt;
+
+public class FtpServerHomeDirectoryPreference extends PathPreference {
+
+    public FtpServerHomeDirectoryPreference(Context context) {
+        super(context);
+    }
+
+    public FtpServerHomeDirectoryPreference(Context context, AttributeSet attrs) {
+        super(context, attrs);
+    }
+
+    public FtpServerHomeDirectoryPreference(Context context, AttributeSet attrs,
+            @AttrRes int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
+    }
+
+    public FtpServerHomeDirectoryPreference(Context context, AttributeSet attrs,
+            @AttrRes int defStyleAttr, @StyleRes int defStyleRes) {
+        super(context, attrs, defStyleAttr, defStyleRes);
+    }
+
+    @Override
+    public Path getPersistedPath() {
+        return LiveDataUtilsKt.getValueCompat(Settings.FTP_SERVER_HOME_DIRECTORY);
+    }
+
+    @Override
+    public void setPersistedPath(Path value) {
+        Settings.FTP_SERVER_HOME_DIRECTORY.putValue(value);
+    }
+}

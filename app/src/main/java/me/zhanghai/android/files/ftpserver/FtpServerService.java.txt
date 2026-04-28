@@ -1,0 +1,175 @@
+/*
+ * Copyright (c) 2019 Hai Zhang <dreaming.in.code.zh@gmail.com>
+ * All Rights Reserved.
+ */
+
+package me.zhanghai.android.files.ftpserver;
+
+import android.app.Service;
+import android.content.Context;
+import android.content.Intent;
+import android.os.IBinder;
+
+import androidx.annotation.WorkerThread;
+import androidx.core.content.ContextCompat;
+import androidx.lifecycle.LiveData;
+import androidx.lifecycle.MutableLiveData;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import me.zhanghai.android.files.compat.ExecutorCompatKt;
+import me.zhanghai.android.files.settings.Settings;
+import me.zhanghai.android.files.util.LiveDataUtilsKt;
+import me.zhanghai.android.files.util.ToastUtilsKt;
+import me.zhanghai.android.files.util.WakeWifiLock;
+
+public class FtpServerService extends Service {
+    public static final String USERNAME_ANONYMOUS = "anonymous";
+
+    private static final MutableLiveData<State> _stateLiveData = new MutableLiveData<>(State.STOPPED);
+
+    public static LiveData<State> getStateLiveData() {
+        return _stateLiveData;
+    }
+
+    private State state = State.STOPPED;
+    private WakeWifiLock wakeWifiLock;
+    private FtpServerNotification notification;
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private FtpServer server;
+
+    private void setState(State value) {
+        state = value;
+        _stateLiveData.setValue(value);
+    }
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        wakeWifiLock = new WakeWifiLock(FtpServerService.class.getSimpleName());
+        notification = new FtpServerNotification(this);
+        executeStart();
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        return START_STICKY;
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        executeStop();
+        executorService.shutdown();
+    }
+
+    private void executeStart() {
+        if (state == State.STARTING || state == State.RUNNING) {
+            return;
+        }
+        wakeWifiLock.setAcquired(true);
+        notification.startForeground();
+        setState(State.STARTING);
+        executorService.execute(this::doStart);
+    }
+
+    private void onStartError(Exception exception) {
+        setState(State.STOPPED);
+        ToastUtilsKt.showToast(this, exception.toString());
+        notification.stopForeground();
+        wakeWifiLock.setAcquired(false);
+        stopSelf();
+    }
+
+    private void executeStop() {
+        if (state == State.STOPPING || state == State.STOPPED) {
+            return;
+        }
+        setState(State.STOPPING);
+        executorService.execute(this::doStop);
+        notification.stopForeground();
+        wakeWifiLock.setAcquired(false);
+    }
+
+    @WorkerThread
+    private void postState(State newState) {
+        ExecutorCompatKt.getMainExecutorCompat(this).execute(() -> setState(newState));
+    }
+
+    @WorkerThread
+    private void doStart() {
+        if (server != null) {
+            return;
+        }
+        String username;
+        String password;
+        if (LiveDataUtilsKt.getValueCompat(Settings.FTP_SERVER_ANONYMOUS_LOGIN)) {
+            username = USERNAME_ANONYMOUS;
+            password = null;
+        } else {
+            username = LiveDataUtilsKt.getValueCompat(Settings.FTP_SERVER_USERNAME);
+            password = LiveDataUtilsKt.getValueCompat(Settings.FTP_SERVER_PASSWORD);
+        }
+        int port = LiveDataUtilsKt.getValueCompat(Settings.FTP_SERVER_PORT);
+        java8.nio.file.Path homeDirectory =
+                LiveDataUtilsKt.getValueCompat(Settings.FTP_SERVER_HOME_DIRECTORY);
+        boolean writable = LiveDataUtilsKt.getValueCompat(Settings.FTP_SERVER_WRITABLE);
+
+        FtpServer ftpServer = new FtpServer(username, password, port, homeDirectory, writable);
+        this.server = ftpServer;
+        try {
+            ftpServer.start();
+        } catch (Exception e) {
+            e.printStackTrace();
+            this.server = null;
+            ExecutorCompatKt.getMainExecutorCompat(this).execute(() -> onStartError(e));
+            return;
+        }
+        postState(State.RUNNING);
+    }
+
+    @WorkerThread
+    private void doStop() {
+        if (server == null) {
+            return;
+        }
+        server.stop();
+        server = null;
+        postState(State.STOPPED);
+    }
+
+    public static void start(Context context) {
+        ContextCompat.startForegroundService(
+                context, new Intent(context, FtpServerService.class));
+    }
+
+    public static void stop(Context context) {
+        context.stopService(new Intent(context, FtpServerService.class));
+    }
+
+    public static void toggle(Context context) {
+        State state = LiveDataUtilsKt.getValueCompat(_stateLiveData);
+        if (state == State.STARTING || state == State.STOPPING) {
+            // do nothing
+        } else if (state == State.RUNNING) {
+            stop(context);
+        } else if (state == State.STOPPED) {
+            start(context);
+        } else {
+            throw new AssertionError(state);
+        }
+    }
+
+    public enum State {
+        STARTING,
+        RUNNING,
+        STOPPING,
+        STOPPED
+    }
+}

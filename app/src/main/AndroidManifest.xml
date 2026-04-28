@@ -41,6 +41,7 @@
       ~ TODO: Remove this attribute once Samsung respects the default value for it.
       -->
     <application
+        android:name=".app.MyApp"
         android:allowBackup="true"
         android:banner="@drawable/banner"
         android:enableOnBackInvokedCallback="true"
@@ -378,10 +379,10 @@
                 android:value="true" />
         </service>
 
-        <provider
+     <!--   <provider
             android:name="me.zhanghai.android.files.app.AppProvider"
             android:authorities="@string/app_provider_authority"
-            android:exported="false" />
+            android:exported="false" />-->
 
         <provider
             android:name="me.zhanghai.android.files.file.FileProvider"

@@ -1,0 +1,371 @@
+/*
+ * Merged from:
+ *   - AppProvider.kt      (ContentProvider initializer → Application subclass)
+ *   - AppInitializers.kt  (initialization steps)
+ *   - SystemServices.kt   (lazy system service accessors)
+ *   - BackgroundActivityStarter.kt
+ *   - NotificationIds.kt
+ *
+ * AppUpgrader / AppUpgraders are intentionally excluded per request.
+ */
+
+package me.zhanghai.android.files.app;
+
+import android.annotation.SuppressLint;
+import android.app.Application;
+import android.app.PendingIntent;
+import android.content.ClipboardManager;
+import android.content.ContentResolver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.net.wifi.WifiManager;
+import android.os.AsyncTask;
+import android.os.Build;
+import android.os.PowerManager;
+import android.os.storage.StorageManager;
+import android.view.inputmethod.InputMethodManager;
+import android.webkit.WebView;
+
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.ProcessLifecycleOwner;
+import androidx.preference.PreferenceManager;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Properties;
+import java.util.concurrent.Executor;
+
+import jcifs.context.SingletonContext;
+import me.zhanghai.android.files.BuildConfig;
+import me.zhanghai.android.files.R;
+import me.zhanghai.android.files.coil.CoilKt;           // initializeCoil()
+import me.zhanghai.android.files.compat.ContextCompat;  // getSystemServiceCompat(), mainExecutorCompat
+import me.zhanghai.android.files.hiddenapi.HiddenApi;
+import me.zhanghai.android.files.provider.FileSystemProviders;
+import me.zhanghai.android.files.settings.Settings;
+import me.zhanghai.android.files.storage.FtpServerAuthenticator;
+import me.zhanghai.android.files.storage.SftpServerAuthenticator;
+import me.zhanghai.android.files.storage.SmbServerAuthenticator;
+import me.zhanghai.android.files.storage.StorageVolumeListLiveData;
+import me.zhanghai.android.files.storage.WebDavServerAuthenticator;
+import me.zhanghai.android.files.theme.custom.CustomThemeHelper;
+import me.zhanghai.android.files.theme.night.NightModeHelper;
+import me.zhanghai.android.files.util.NotificationChannelTemplate;
+import me.zhanghai.android.files.util.NotificationTemplate;
+import me.zhanghai.android.files.util.IntentUtils; // startActivitySafe()
+import me.zhanghai.android.files.provider.ftp.client.Client    as FtpClient;
+import me.zhanghai.android.files.provider.sftp.client.Client   as SftpClient;
+import me.zhanghai.android.files.provider.smb.client.Client    as SmbClient;
+import me.zhanghai.android.files.provider.webdav.client.Client as WebDavClient;
+import me.zhanghai.android.files.filejob.FileJobKt;      // fileJobNotificationTemplate
+import me.zhanghai.android.files.ftpserver.FtpServerKt; // ftpServerServiceNotificationTemplate
+
+public class MyApp extends Application {
+
+    // -------------------------------------------------------------------------
+    // Singleton instance (replaces the Kotlin top-level `application` property)
+    // -------------------------------------------------------------------------
+
+    private static MyApp sInstance;
+
+    /** Package-level access only; mirrors Kotlin's `private set`. */
+    public static MyApp getInstance() {
+        return sInstance;
+    }
+
+    // -------------------------------------------------------------------------
+    // Notification IDs  (NotificationIds.kt)
+    // -------------------------------------------------------------------------
+
+    public static final class NotificationIds {
+        public static final int FTP_SERVER = 1;
+
+        private NotificationIds() {}
+    }
+
+    // -------------------------------------------------------------------------
+    // Lazy system-service accessors  (SystemServices.kt)
+    // Note: all are initialised on first access, not at app start.
+    // -------------------------------------------------------------------------
+
+    private ClipboardManager     mClipboardManager;
+    private ContentResolver      mContentResolver;
+    private SharedPreferences    mDefaultSharedPreferences;
+    private InputMethodManager   mInputMethodManager;
+    private Executor             mMainExecutor;
+    private NotificationManagerCompat mNotificationManager;
+    private PackageManager       mPackageManager;
+    private PowerManager         mPowerManager;
+    private StorageManager       mStorageManager;
+    private WifiManager          mWifiManager;
+    private okhttp3.OkHttpClient mOkHttpClient;
+
+    public ClassLoader getAppClassLoader() {
+        return MyApp.class.getClassLoader();
+    }
+
+    public ClipboardManager getClipboardManagerCompat() {
+        if (mClipboardManager == null) {
+            mClipboardManager = getSystemService(ClipboardManager.class);
+        }
+        return mClipboardManager;
+    }
+
+    @Override
+    public ContentResolver getContentResolver() {
+        if (mContentResolver == null) {
+            mContentResolver = super.getContentResolver();
+        }
+        return mContentResolver;
+    }
+
+    public SharedPreferences getDefaultSharedPreferences() {
+        if (mDefaultSharedPreferences == null) {
+            mDefaultSharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+        }
+        return mDefaultSharedPreferences;
+    }
+
+    public InputMethodManager getInputMethodManagerCompat() {
+        if (mInputMethodManager == null) {
+            mInputMethodManager = getSystemService(InputMethodManager.class);
+        }
+        return mInputMethodManager;
+    }
+
+    public Executor getMainExecutorCompat() {
+        if (mMainExecutor == null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                mMainExecutor = super.getMainExecutor();
+            } else {
+                mMainExecutor = command -> new android.os.Handler(
+                        android.os.Looper.getMainLooper()).post(command);
+            }
+        }
+        return mMainExecutor;
+    }
+
+    public NotificationManagerCompat getNotificationManagerCompat() {
+        if (mNotificationManager == null) {
+            mNotificationManager = NotificationManagerCompat.from(this);
+        }
+        return mNotificationManager;
+    }
+
+    @Override
+    public PackageManager getPackageManager() {
+        if (mPackageManager == null) {
+            mPackageManager = super.getPackageManager();
+        }
+        return mPackageManager;
+    }
+
+    public PowerManager getPowerManagerCompat() {
+        if (mPowerManager == null) {
+            mPowerManager = getSystemService(PowerManager.class);
+        }
+        return mPowerManager;
+    }
+
+    public StorageManager getStorageManagerCompat() {
+        if (mStorageManager == null) {
+            mStorageManager = getSystemService(StorageManager.class);
+        }
+        return mStorageManager;
+    }
+
+    public WifiManager getWifiManagerCompat() {
+        if (mWifiManager == null) {
+            mWifiManager = (WifiManager) getApplicationContext()
+                    .getSystemService(Context.WIFI_SERVICE);
+        }
+        return mWifiManager;
+    }
+
+    public okhttp3.OkHttpClient getOkHttpClient() {
+        if (mOkHttpClient == null) {
+            mOkHttpClient = new okhttp3.OkHttpClient();
+        }
+        return mOkHttpClient;
+    }
+
+    // -------------------------------------------------------------------------
+    // Notification template  (BackgroundActivityStarter.kt)
+    // -------------------------------------------------------------------------
+
+    private NotificationTemplate mBackgroundActivityStartNotificationTemplate;
+
+    public NotificationTemplate getBackgroundActivityStartNotificationTemplate() {
+        if (mBackgroundActivityStartNotificationTemplate == null) {
+            NotificationChannelTemplate channelTemplate = new NotificationChannelTemplate(
+                    "background_activity_start",
+                    R.string.notification_channel_background_activity_start_name,
+                    NotificationManagerCompat.IMPORTANCE_HIGH,
+                    R.string.notification_channel_background_activity_start_description,
+                    /* showBadge= */ false
+            );
+            mBackgroundActivityStartNotificationTemplate = new NotificationTemplate(
+                    channelTemplate,
+                    R.color.color_primary,
+                    R.drawable.notification_icon,
+                    /* ongoing= */    true,
+                    /* autoCancel= */ true,
+                    NotificationCompat.CATEGORY_ERROR,
+                    NotificationCompat.PRIORITY_HIGH
+            );
+        }
+        return mBackgroundActivityStartNotificationTemplate;
+    }
+
+    // -------------------------------------------------------------------------
+    // Application lifecycle  (AppProvider.kt + AppInitializers.kt)
+    // -------------------------------------------------------------------------
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        sInstance = this;
+        runInitializers();
+    }
+
+    /**
+     * Ordered list of initialisation steps, mirroring {@code appInitializers} in
+     * AppInitializers.kt. AppUpgrader is intentionally omitted.
+     */
+    private void runInitializers() {
+        initializeCrashlytics();
+        disableHiddenApiChecks();
+        initializeWebViewDebugging();
+        initializeCoil();
+        initializeFileSystemProviders();
+        // upgradeApp() — excluded per request
+        initializeLiveDataObjects();
+        initializeCustomTheme();
+        initializeNightMode();
+        createNotificationChannels();
+    }
+
+    private void initializeCrashlytics() {
+        // #ifdef NONFREE
+        // me.zhanghai.android.files.nonfree.CrashlyticsInitializer.initialize();
+        // #endif
+    }
+
+    private void disableHiddenApiChecks() {
+        HiddenApi.disableHiddenApiChecks();
+    }
+
+    private void initializeWebViewDebugging() {
+        if (BuildConfig.DEBUG) {
+            WebView.setWebContentsDebuggingEnabled(true);
+        }
+    }
+
+    @SuppressWarnings("deprecation") // AsyncTask.THREAD_POOL_EXECUTOR still fine for fire-and-forget
+    private void initializeFileSystemProviders() {
+        FileSystemProviders.install();
+        FileSystemProviders.setOverflowWatchEvents(true);
+
+        // SingletonContext.init() calls NameServiceClientImpl.initCache() which hits the network,
+        // so push it off the main thread exactly as the original Kotlin does.
+        AsyncTask.THREAD_POOL_EXECUTOR.execute(() -> {
+            Properties props = new Properties();
+            props.setProperty("jcifs.netbios.cachePolicy", "0");
+            props.setProperty("jcifs.smb.client.maxVersion", "SMB1");
+            try {
+                SingletonContext.init(props);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+
+        FtpClient.setAuthenticator(FtpServerAuthenticator.INSTANCE);
+        SftpClient.setAuthenticator(SftpServerAuthenticator.INSTANCE);
+        SmbClient.setAuthenticator(SmbServerAuthenticator.INSTANCE);
+        WebDavClient.setAuthenticator(WebDavServerAuthenticator.INSTANCE);
+    }
+
+    private void initializeCoil() {
+        CoilKt.initializeCoil(this);
+    }
+
+    private void initializeLiveDataObjects() {
+        // Force init on the main thread so it never happens on a background thread.
+        StorageVolumeListLiveData.INSTANCE.getValue();
+        Settings.FILE_LIST_DEFAULT_DIRECTORY.getValue();
+    }
+
+    private void initializeCustomTheme() {
+        CustomThemeHelper.initialize(this);
+    }
+
+    private void initializeNightMode() {
+        NightModeHelper.initialize(this);
+    }
+
+    private void createNotificationChannels() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            List<android.app.NotificationChannel> channels = Arrays.asList(
+                    getBackgroundActivityStartNotificationTemplate()
+                            .getChannelTemplate().create(this),
+                    FileJobKt.getFileJobNotificationTemplate()
+                            .getChannelTemplate().create(this),
+                    FtpServerKt.getFtpServerServiceNotificationTemplate()
+                            .getChannelTemplate().create(this)
+            );
+            getNotificationManagerCompat().createNotificationChannels(channels);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // BackgroundActivityStarter  (BackgroundActivityStarter.kt)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Start {@code intent} immediately if the app is in the foreground, otherwise
+     * post a high-priority notification that lets the user tap to launch it.
+     */
+    public void startBackgroundActivity(
+            Intent intent, CharSequence title, CharSequence text, Context context) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (isAppInForeground()) {
+            IntentUtils.startActivitySafe(context, intent);
+        } else {
+            notifyStartActivity(intent, title, text, context);
+        }
+    }
+
+    private boolean isAppInForeground() {
+        return ProcessLifecycleOwner.get()
+                .getLifecycle()
+                .getCurrentState()
+                .isAtLeast(Lifecycle.State.STARTED);
+    }
+
+    // We intentionally don't guard with a permission check here — the original
+    // Kotlin code accepts a potential SecurityException from the file-job layer.
+    @SuppressLint("MissingPermission")
+    private void notifyStartActivity(
+            Intent intent, CharSequence title, CharSequence text, Context context) {
+        int flags = PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_CANCEL_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            flags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+                context, intent.hashCode(), intent, flags);
+
+        android.app.Notification notification =
+                getBackgroundActivityStartNotificationTemplate()
+                        .createBuilder(context)
+                        .setContentTitle(title)
+                        .setContentText(text)
+                        .setContentIntent(pendingIntent)
+                        .build();
+
+        getNotificationManagerCompat().notify(intent.hashCode(), notification);
+    }
+}

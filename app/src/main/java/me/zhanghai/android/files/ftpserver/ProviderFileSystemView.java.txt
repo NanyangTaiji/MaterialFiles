@@ -1,0 +1,73 @@
+/*
+ * Copyright (c) 2019 Hai Zhang <dreaming.in.code.zh@gmail.com>
+ * All Rights Reserved.
+ */
+
+package me.zhanghai.android.files.ftpserver;
+
+import java8.nio.file.Path;
+import java8.nio.file.Paths;
+
+import me.zhanghai.android.files.provider.archive.ArchivePathUtilsKt;
+
+import org.apache.ftpserver.ftplet.FileSystemView;
+import org.apache.ftpserver.ftplet.User;
+
+import java.net.URI;
+
+public class ProviderFileSystemView implements FileSystemView {
+    private final User user;
+    private final ProviderFtpFile homeDirectory;
+    private ProviderFtpFile workingDirectory;
+
+    public ProviderFileSystemView(User user) {
+        this.user = user;
+        Path homeDirectoryPath = Paths.get(URI.create(user.getHomeDirectory()));
+        homeDirectory = new ProviderFtpFile(
+                homeDirectoryPath, homeDirectoryPath.relativize(homeDirectoryPath), user);
+        workingDirectory = homeDirectory;
+    }
+
+    @Override
+    public ProviderFtpFile getHomeDirectory() {
+        return homeDirectory;
+    }
+
+    @Override
+    public ProviderFtpFile getWorkingDirectory() {
+        return workingDirectory;
+    }
+
+    @Override
+    public boolean changeWorkingDirectory(String directoryString) {
+        ProviderFtpFile directory = getFile(directoryString);
+        if (!directory.isDirectory()) {
+            return false;
+        }
+        workingDirectory = directory;
+        return true;
+    }
+
+    @Override
+    public ProviderFtpFile getFile(String fileString) {
+        boolean isAbsolute = fileString.startsWith("/");
+        Path homeDirectoryPath = homeDirectory.getPhysicalFile();
+        Path parentPath = isAbsolute ? homeDirectoryPath : workingDirectory.getPhysicalFile();
+        String relativeFileString = isAbsolute ? fileString.substring(1) : fileString;
+        Path filePath = parentPath.resolve(relativeFileString).normalize();
+        if (!filePath.startsWith(homeDirectoryPath)) {
+            return homeDirectory;
+        }
+        return new ProviderFtpFile(filePath, homeDirectoryPath.relativize(filePath), user);
+    }
+
+    @Override
+    public boolean isRandomAccessible() {
+        // TODO: Better way of determining if the provider is random accessible.
+        return !ArchivePathUtilsKt.isArchivePath(homeDirectory.getPhysicalFile());
+    }
+
+    @Override
+    public void dispose() {
+    }
+}

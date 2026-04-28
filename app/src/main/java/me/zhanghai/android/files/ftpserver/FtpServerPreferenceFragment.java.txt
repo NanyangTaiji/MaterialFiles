@@ -1,0 +1,20 @@
+/*
+ * Copyright (c) 2019 Hai Zhang <dreaming.in.code.zh@gmail.com>
+ * All Rights Reserved.
+ */
+
+package me.zhanghai.android.files.ftpserver;
+
+import android.os.Bundle;
+
+import androidx.annotation.Nullable;
+
+import me.zhanghai.android.files.R;
+import me.zhanghai.android.files.ui.PreferenceFragmentCompat;
+
+public class FtpServerPreferenceFragment extends PreferenceFragmentCompat {
+    @Override
+    public void onCreatePreferencesFix(@Nullable Bundle savedInstanceState, String rootKey) {
+        addPreferencesFromResource(R.xml.ftp_server);
+    }
+}

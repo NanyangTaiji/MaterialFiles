@@ -1,0 +1,63 @@
+/*
+ * Copyright (c) 2019 Hai Zhang <dreaming.in.code.zh@gmail.com>
+ * All Rights Reserved.
+ */
+
+package me.zhanghai.android.files.ftpserver;
+
+import java8.nio.file.Path;
+import org.apache.ftpserver.ConnectionConfigFactory;
+import org.apache.ftpserver.FtpServer;
+import org.apache.ftpserver.FtpServerFactory;
+import org.apache.ftpserver.ftplet.FtpException;
+import org.apache.ftpserver.listener.ListenerFactory;
+import org.apache.ftpserver.usermanager.impl.BaseUser;
+import org.apache.ftpserver.usermanager.impl.WritePermission;
+
+import java.util.Collections;
+
+public class FtpServer {
+    private final String username;
+    private final String password;
+    private final int port;
+    private final Path homeDirectory;
+    private final boolean writable;
+
+    private org.apache.ftpserver.FtpServer server;
+
+    public FtpServer(String username, String password, int port, Path homeDirectory,
+            boolean writable) {
+        this.username = username;
+        this.password = password;
+        this.port = port;
+        this.homeDirectory = homeDirectory;
+        this.writable = writable;
+    }
+
+    public void start() throws FtpException, RuntimeException {
+        ListenerFactory listenerFactory = new ListenerFactory();
+        listenerFactory.setPort(port);
+
+        BaseUser user = new BaseUser();
+        user.setName(username);
+        user.setPassword(password);
+        user.setAuthorities(writable
+                ? Collections.singletonList(new WritePermission())
+                : Collections.emptyList());
+        user.setHomeDirectory(homeDirectory.toUri().toString());
+
+        FtpServerFactory serverFactory = new FtpServerFactory();
+        serverFactory.addListener("default", listenerFactory.createListener());
+        serverFactory.getUserManager().save(user);
+        serverFactory.setFileSystem(new ProviderFileSystemFactory());
+        serverFactory.setConnectionConfig(new ConnectionConfigFactory()
+                .createConnectionConfig());
+
+        server = serverFactory.createServer();
+        server.start();
+    }
+
+    public void stop() {
+        server.stop();
+    }
+}

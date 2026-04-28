@@ -1,0 +1,77 @@
+/*
+ * Copyright (c) 2023 Hai Zhang <dreaming.in.code.zh@gmail.com>
+ * All Rights Reserved.
+ */
+
+package me.zhanghai.android.files.ftpserver;
+
+import android.app.StatusBarManager;
+import android.content.Context;
+import android.os.Build;
+import android.util.AttributeSet;
+
+import androidx.annotation.AttrRes;
+import androidx.annotation.RequiresApi;
+import androidx.annotation.StyleRes;
+import androidx.preference.Preference;
+
+import me.zhanghai.android.files.R;
+import me.zhanghai.android.files.compat.ContextCompatKt;
+import me.zhanghai.android.files.compat.ExecutorCompatKt;
+import me.zhanghai.android.files.util.StatusBarManagerCompatKt;
+import me.zhanghai.android.files.util.ToastUtilsKt;
+
+public class FtpServerAddTilePreference extends Preference {
+
+    public FtpServerAddTilePreference(Context context) {
+        super(context);
+        init();
+    }
+
+    public FtpServerAddTilePreference(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        init();
+    }
+
+    public FtpServerAddTilePreference(Context context, AttributeSet attrs,
+            @AttrRes int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
+        init();
+    }
+
+    public FtpServerAddTilePreference(Context context, AttributeSet attrs,
+            @AttrRes int defStyleAttr, @StyleRes int defStyleRes) {
+        super(context, attrs, defStyleAttr, defStyleRes);
+        init();
+    }
+
+    private void init() {
+        setPersistent(false);
+    }
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    @Override
+    protected void onClick() {
+        StatusBarManager statusBarManager =
+                ContextCompatKt.getSystemServiceCompat(getContext(), StatusBarManager.class);
+        StatusBarManagerCompatKt.requestAddTileService(
+                statusBarManager,
+                FtpServerTileService.class,
+                ExecutorCompatKt.getMainExecutorCompat(getContext()),
+                result -> {
+                    if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_NOT_ADDED) {
+                        return;
+                    }
+                    int resultRes;
+                    if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED) {
+                        resultRes = R.string.ftp_server_add_tile_result_already_added;
+                    } else if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED) {
+                        resultRes = R.string.ftp_server_add_tile_result_added;
+                    } else {
+                        resultRes = R.string.ftp_server_add_tile_result_error;
+                    }
+                    ToastUtilsKt.showToast(getContext(), resultRes);
+                }
+        );
+    }
+}

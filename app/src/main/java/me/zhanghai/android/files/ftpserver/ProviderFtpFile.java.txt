@@ -1,0 +1,298 @@
+/*
+ * Copyright (c) 2019 Hai Zhang <dreaming.in.code.zh@gmail.com>
+ * All Rights Reserved.
+ */
+
+package me.zhanghai.android.files.ftpserver;
+
+import java8.nio.file.Path;
+import java8.nio.file.StandardOpenOption;
+import java8.nio.file.attribute.FileTime;
+import java8.nio.file.attribute.PosixFileAttributeView;
+
+import me.zhanghai.android.files.provider.common.PathExtensionsKt;
+
+import org.apache.ftpserver.ftplet.FtpFile;
+import org.apache.ftpserver.ftplet.User;
+import org.apache.ftpserver.usermanager.impl.WriteRequest;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+public class ProviderFtpFile implements Comparable<ProviderFtpFile>, FtpFile {
+    private final Path path;
+    private final Path relativePath;
+    private final User user;
+
+    public ProviderFtpFile(Path path, Path relativePath, User user) {
+        this.path = path;
+        this.relativePath = relativePath;
+        this.user = user;
+    }
+
+    @Override
+    public String getAbsolutePath() {
+        String p = relativePath.toString();
+        return "/" + p;
+    }
+
+    @Override
+    public String getName() {
+        Path fileName = relativePath.getFileName();
+        String name = fileName != null ? fileName.toString() : "";
+        return !name.isEmpty() ? name : "/";
+    }
+
+    @Override
+    public boolean isHidden() {
+        return false;
+    }
+
+    @Override
+    public boolean isDirectory() {
+        return PathExtensionsKt.isDirectory(path);
+    }
+
+    @Override
+    public boolean isFile() {
+        return PathExtensionsKt.isRegularFile(path);
+    }
+
+    @Override
+    public boolean doesExist() {
+        return PathExtensionsKt.exists(path);
+    }
+
+    @Override
+    public boolean isReadable() {
+        return PathExtensionsKt.isReadable(path);
+    }
+
+    @Override
+    public boolean isWritable() {
+        if (user.authorize(new WriteRequest(getAbsolutePath())) == null) {
+            return false;
+        }
+        return !PathExtensionsKt.exists(path) || PathExtensionsKt.isWritable(path);
+    }
+
+    @Override
+    public boolean isRemovable() {
+        if (relativePath.getNameCount() == 1
+                && relativePath.getName(0).toString().isEmpty()) {
+            return false;
+        }
+        if (user.authorize(new WriteRequest(getAbsolutePath())) == null) {
+            return false;
+        }
+        return PathExtensionsKt.isWritable(path.getParent());
+    }
+
+    @Override
+    public String getOwnerName() {
+        try {
+            return PathExtensionsKt.getOwner(path).getName();
+        } catch (UnsupportedOperationException ignored) {
+            // fall through
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return "user";
+    }
+
+    @Override
+    public String getGroupName() {
+        PosixFileAttributeView attributeView =
+                PathExtensionsKt.getFileAttributeView(path, PosixFileAttributeView.class);
+        if (attributeView != null) {
+            try {
+                return attributeView.readAttributes().group().getName();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        return "group";
+    }
+
+    @Override
+    public int getLinkCount() {
+        return isDirectory() ? 3 : 1;
+    }
+
+    @Override
+    public long getLastModified() {
+        try {
+            return PathExtensionsKt.getLastModifiedTime(path).toMillis();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return 0;
+        }
+    }
+
+    @Override
+    public boolean setLastModified(long time) {
+        if (!isWritable()) {
+            return false;
+        }
+        try {
+            PathExtensionsKt.setLastModifiedTime(path, FileTime.fromMillis(time));
+            return true;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    @Override
+    public long getSize() {
+        try {
+            return PathExtensionsKt.size(path);
+        } catch (IOException e) {
+            e.printStackTrace();
+            return 0;
+        }
+    }
+
+    @Override
+    public Path getPhysicalFile() {
+        return path;
+    }
+
+    @Override
+    public boolean mkdir() {
+        if (!isWritable()) {
+            return false;
+        }
+        try {
+            PathExtensionsKt.createDirectory(path);
+            return true;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    @Override
+    public boolean delete() {
+        if (!isRemovable()) {
+            return false;
+        }
+        try {
+            PathExtensionsKt.delete(path);
+            return true;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    @Override
+    public boolean move(FtpFile destination) {
+        if (!(isRemovable() && destination.isWritable())) {
+            return false;
+        }
+        Path targetPath = ((ProviderFtpFile) destination).path;
+        try {
+            PathExtensionsKt.moveTo(path, targetPath);
+            return true;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    @Override
+    public List<ProviderFtpFile> listFiles() {
+        Iterable<Path> directoryStream;
+        try {
+            directoryStream = PathExtensionsKt.newDirectoryStream(path);
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+        List<ProviderFtpFile> files = new ArrayList<>();
+        for (Path entry : directoryStream) {
+            files.add(new ProviderFtpFile(
+                    path.resolve(entry), relativePath.resolve(entry), user));
+        }
+        Collections.sort(files);
+        return files;
+    }
+
+    @Override
+    public OutputStream createOutputStream(long offset) throws IOException {
+        if (!isWritable()) {
+            throw new IOException("Not writable: " + getAbsolutePath());
+        }
+        if (offset == 0L) {
+            return PathExtensionsKt.newOutputStream(path);
+        } else {
+            SeekableByteChannel channel = PathExtensionsKt.newByteChannel(
+                    path, StandardOpenOption.WRITE);
+            boolean successful = false;
+            try {
+                long size = channel.size();
+                if (offset <= size) {
+                    if (offset < size) {
+                        channel.truncate(offset);
+                    }
+                    channel.position(offset);
+                } else {
+                    channel.position(offset - 1);
+                    channel.write(ByteBuffer.allocate(1));
+                }
+                OutputStream outputStream = PathExtensionsKt.newOutputStream(channel);
+                successful = true;
+                return outputStream;
+            } finally {
+                if (!successful) {
+                    channel.close();
+                }
+            }
+        }
+    }
+
+    @Override
+    public InputStream createInputStream(long offset) throws IOException {
+        if (offset == 0L) {
+            return PathExtensionsKt.newInputStream(path);
+        } else {
+            SeekableByteChannel channel = PathExtensionsKt.newByteChannel(path);
+            boolean successful = false;
+            try {
+                channel.position(offset);
+                InputStream inputStream = PathExtensionsKt.newInputStream(channel);
+                successful = true;
+                return inputStream;
+            } finally {
+                if (!successful) {
+                    channel.close();
+                }
+            }
+        }
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) return true;
+        if (other == null || getClass() != other.getClass()) return false;
+        ProviderFtpFile that = (ProviderFtpFile) other;
+        return path.equals(that.path);
+    }
+
+    @Override
+    public int hashCode() {
+        return path.hashCode();
+    }
+
+    @Override
+    public int compareTo(ProviderFtpFile other) {
+        return path.compareTo(other.path);
+    }
+}

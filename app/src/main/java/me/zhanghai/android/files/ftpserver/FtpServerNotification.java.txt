@@ -1,0 +1,91 @@
+/*
+ * Copyright (c) 2019 Hai Zhang <dreaming.in.code.zh@gmail.com>
+ * All Rights Reserved.
+ */
+
+package me.zhanghai.android.files.ftpserver;
+
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.Intent;
+import android.os.Build;
+
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.ServiceCompat;
+
+import me.zhanghai.android.files.R;
+import me.zhanghai.android.files.app.NotificationIds;
+import me.zhanghai.android.files.compat.ServiceCompatKt;
+import me.zhanghai.android.files.util.NotificationChannelTemplate;
+import me.zhanghai.android.files.util.NotificationTemplate;
+import me.zhanghai.android.files.util.RuntimeBroadcastReceiver;
+
+public class FtpServerNotification {
+
+    public static final NotificationTemplate ftpServerServiceNotificationTemplate =
+            new NotificationTemplate(
+                    new NotificationChannelTemplate(
+                            "ftp_server",
+                            R.string.notification_channel_ftp_server_name,
+                            NotificationManagerCompat.IMPORTANCE_LOW,
+                            R.string.notification_channel_ftp_server_description,
+                            false
+                    ),
+                    R.color.color_primary,
+                    R.drawable.notification_icon,
+                    R.string.ftp_server_notification_title,
+                    true,
+                    true,
+                    NotificationCompat.CATEGORY_SERVICE,
+                    NotificationCompat.PRIORITY_LOW
+            );
+
+    private final Service service;
+    private final RuntimeBroadcastReceiver receiver;
+
+    public FtpServerNotification(Service service) {
+        this.service = service;
+        this.receiver = FtpServerUrl.createChangeReceiver(service, this::doStartForeground);
+    }
+
+    public void startForeground() {
+        doStartForeground();
+        receiver.register();
+    }
+
+    private void doStartForeground() {
+        String contentText = FtpServerUrl.getUrl();
+        if (contentText == null) {
+            contentText = service.getString(
+                    R.string.ftp_server_notification_text_no_local_inet_address);
+        }
+
+        Intent contentIntent = new Intent(service, FtpServerActivity.class);
+        int pendingIntentFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            pendingIntentFlags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        PendingIntent contentPendingIntent = PendingIntent.getActivity(
+                service, FtpServerActivity.class.hashCode(), contentIntent, pendingIntentFlags);
+
+        Intent stopIntent = FtpServerReceiver.createIntent();
+        PendingIntent stopPendingIntent = PendingIntent.getBroadcast(
+                service, FtpServerReceiver.class.hashCode(), stopIntent, pendingIntentFlags);
+
+        android.app.Notification notification =
+                ftpServerServiceNotificationTemplate.createBuilder(service)
+                        .setContentText(contentText)
+                        .setContentIntent(contentPendingIntent)
+                        .addAction(R.drawable.stop_icon_white_24dp,
+                                service.getString(R.string.stop), stopPendingIntent)
+                        .build();
+
+        service.startForeground(NotificationIds.FTP_SERVER, notification);
+    }
+
+    public void stopForeground() {
+        receiver.unregister();
+        ServiceCompatKt.stopForegroundCompat(service, ServiceCompat.STOP_FOREGROUND_REMOVE);
+    }
+}

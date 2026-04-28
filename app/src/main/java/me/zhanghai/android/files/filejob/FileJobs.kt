@@ -29,7 +29,8 @@ import java8.nio.file.StandardOpenOption
 import java8.nio.file.attribute.BasicFileAttributes
 import kotlinx.coroutines.runBlocking
 import me.zhanghai.android.files.R
-import me.zhanghai.android.files.app.BackgroundActivityStarter
+import me.zhanghai.android.files.app.MyApp
+
 import me.zhanghai.android.files.app.mainExecutor
 import me.zhanghai.android.files.compat.mainExecutorCompat
 import me.zhanghai.android.files.file.FileItem
@@ -90,6 +91,7 @@ import me.zhanghai.android.files.util.putArgs
 import me.zhanghai.android.files.util.showToast
 import me.zhanghai.android.files.util.toEnumSet
 import me.zhanghai.android.files.util.withChooser
+import okhttp3.internal.platform.PlatformRegistry.applicationContext
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
@@ -490,8 +492,9 @@ private fun FileJob.showUserAction(exception: UserActionRequiredException): Bool
         runBlocking {
             suspendCoroutine { continuation ->
                 val userAction = exception.getUserAction(continuation, service)
-                BackgroundActivityStarter.startActivity(
-                    userAction.intent, userAction.title, userAction.message, service
+                val app = applicationContext as MyApp
+                app.startBackgroundActivity(
+                    userAction.intent, userAction.title, userAction.message
                 )
             }
         }
@@ -512,7 +515,8 @@ private fun FileJob.showErrorDialog(
     try {
         runBlocking {
             suspendCoroutine { continuation ->
-                BackgroundActivityStarter.startActivity(
+                val app = applicationContext as MyApp
+                app.startBackgroundActivity(
                     FileJobErrorDialogActivity::class.createIntent().putArgs(
                         FileJobErrorDialogFragment.Args(
                             title, message, readOnlyFileStore, showAll, positiveButtonText,
@@ -520,7 +524,7 @@ private fun FileJob.showErrorDialog(
                         ) { action, isAll ->
                             continuation.resume(ErrorResult(action, isAll))
                         }
-                    ), title, message, service
+                    ), title, message
                 )
             }
         }
@@ -555,7 +559,8 @@ private fun FileJob.showConflictDialog(
     try {
         runBlocking {
             suspendCoroutine { continuation ->
-                BackgroundActivityStarter.startActivity(
+                val app = applicationContext as MyApp
+                app.startBackgroundActivity(
                     FileJobConflictDialogActivity::class.createIntent().putArgs(
                         FileJobConflictDialogFragment.Args(
                             sourceFile, targetFile, type
@@ -563,8 +568,7 @@ private fun FileJob.showConflictDialog(
                             continuation.resume(ConflictResult(action, name, all))
                         }
                     ), FileJobConflictDialogFragment.getTitle(sourceFile, targetFile, service),
-                    FileJobConflictDialogFragment.getMessage(sourceFile, targetFile, type, service),
-                    service
+                    FileJobConflictDialogFragment.getMessage(sourceFile, targetFile, type, service)
                 )
             }
         }
@@ -1531,9 +1535,10 @@ private fun FileJob.open(
     if (!copied) {
         return
     }
-    BackgroundActivityStarter.startActivity(
+    val app = applicationContext as MyApp
+    app.startBackgroundActivity(
         intentCreator(targetFile), getString(notificationTitleFormatRes, targetFileName),
-        getString(notificationTextRes), service
+        getString(notificationTextRes)
     )
 }
 

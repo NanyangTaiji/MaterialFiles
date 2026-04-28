@@ -1,0 +1,50 @@
+/*
+ * Copyright (c) 2023 Hai Zhang <dreaming.in.code.zh@gmail.com>
+ * All Rights Reserved.
+ */
+
+package me.zhanghai.android.files.ftpserver;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.net.ConnectivityManager;
+
+import java.net.InetAddress;
+
+import me.zhanghai.android.files.settings.Settings;
+import me.zhanghai.android.files.util.InetAddressUtilsKt;
+import me.zhanghai.android.files.util.LiveDataUtilsKt;
+import me.zhanghai.android.files.util.RuntimeBroadcastReceiver;
+
+public class FtpServerUrl {
+
+    public static String getUrl() {
+        InetAddress localAddress = InetAddressUtils.getLocalAddress(InetAddress.class);
+        if (localAddress == null) {
+            return null;
+        }
+        String username = null;
+        if (!LiveDataUtilsKt.getValueCompat(Settings.FTP_SERVER_ANONYMOUS_LOGIN)) {
+            username = LiveDataUtilsKt.getValueCompat(Settings.FTP_SERVER_USERNAME);
+        }
+        String host = localAddress.getHostAddress();
+        int port = LiveDataUtilsKt.getValueCompat(Settings.FTP_SERVER_PORT);
+        return "ftp://" + (username != null ? username + "@" : "") + host + ":" + port + "/";
+    }
+
+    public static RuntimeBroadcastReceiver createChangeReceiver(Context context,
+            Runnable onChange) {
+        return new RuntimeBroadcastReceiver(
+                new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION),
+                new BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context context, Intent intent) {
+                        onChange.run();
+                    }
+                },
+                context
+        );
+    }
+}
